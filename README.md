@@ -105,7 +105,14 @@ cd ntp-mcp
 #    This creates a virtual environment and installs everything needed
 uv sync
 
-# 4. Add the MCP to Claude (global installation)
+# 4. (Optional) Configure your timezone
+#    By default, NTP-MCP uses UTC. To use your local timezone:
+./setup_timezone.sh
+# Or: python3 setup_timezone.py
+# Note: You may need to make scripts executable first:
+# chmod +x setup_timezone.sh launch_ntpmcp.sh
+
+# 5. Add the MCP to Claude (global installation)
 #    This makes it available to all Claude instances
 claude mcp add --scope user ntp bash /path/to/ntp-mcp/launch_ntpmcp.sh
 ```
@@ -121,6 +128,9 @@ That's it! Claude will automatically start the NTP server when needed.
 5. Run:
    ```bash
    uv sync
+   # Optional: Configure timezone (default is UTC)
+   chmod +x setup_timezone.sh && ./setup_timezone.sh
+   # Then add to Claude:
    claude mcp add --scope user ntp bash /path/to/ntp-mcp/launch_ntpmcp.sh
    ```
 
