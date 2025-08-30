@@ -74,24 +74,66 @@ Please use one of the approved servers. Use 'list_approved_servers' tool to see 
 
 ## 🚀 Quick Start
 
-### Prerequisites
+### What You'll Need
 
-- Python 3.11+
-- UV package manager (`pip install uv` or `curl -LsSf https://astral.sh/uv/install.sh | sh`)
+1. **Python 3.11 or newer** - The programming language this server runs on
+   - Check if you have it: Open a terminal and type `python --version`
+   - If you need it: Download from [python.org](https://python.org)
 
-### Development Installation
+2. **UV Package Manager** - A fast, modern Python package installer (like npm for Node.js)
+   - UV is faster and more reliable than pip
+   - It handles dependencies and virtual environments automatically
+   - Install UV with ONE of these commands:
+     - Windows/Mac/Linux with pip: `pip install uv`
+     - Mac/Linux with curl: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+
+3. **Git** (optional) - For cloning the repository
+   - Or you can download the ZIP file from GitHub
+
+### Step-by-Step Installation
+
+#### Option 1: Using Git (Recommended)
 
 ```bash
-# Clone the repository
+# 1. Clone (download) the repository
 git clone https://github.com/jdez427/ntp-mcp.git
+
+# 2. Enter the project directory
 cd ntp-mcp
 
-# Initialize UV environment
+# 3. Let UV install all dependencies
+#    This creates a virtual environment and installs everything needed
 uv sync
 
-# Run the server
+# 4. Run the server
+#    On Windows: python launch_ntpmcp.sh
+#    On Mac/Linux: ./launch_ntpmcp.sh
 ./launch_ntpmcp.sh
 ```
+
+#### Option 2: Download ZIP
+
+1. Go to https://github.com/jdez427/ntp-mcp
+2. Click the green "Code" button → "Download ZIP"
+3. Extract the ZIP file to a folder
+4. Open a terminal in that folder
+5. Run:
+   ```bash
+   uv sync
+   ./launch_ntpmcp.sh
+   ```
+
+### What's Happening During Installation?
+
+- **`uv sync`** reads the `pyproject.toml` file and:
+  - Creates an isolated Python environment (so it won't affect other Python projects)
+  - Downloads and installs all required packages (mcp, ntplib, pytz, etc.)
+  - Locks the versions for consistency
+  
+- **`./launch_ntpmcp.sh`** is a script that:
+  - Sets up the environment variables
+  - Starts the NTP-MCP server
+  - Shows you the configuration
 
 ### Local Installation
 
@@ -113,7 +155,19 @@ uv sync
 
 ## 📦 Installation for Claude Desktop
 
-Add to your Claude Desktop configuration:
+### Finding Your Configuration File
+
+Claude Desktop stores its configuration in different places depending on your operating system:
+
+- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+- **Mac**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Linux**: `~/.config/claude/claude_desktop_config.json`
+
+### Adding NTP-MCP to Claude
+
+1. **Open the configuration file** in a text editor (Notepad, TextEdit, etc.)
+2. **Find or create the `mcpServers` section**
+3. **Add the NTP-MCP configuration**:
 
 ```json
 {
@@ -206,6 +260,31 @@ sudo systemctl status ntp-mcp
   }
 }
 ```
+
+## 🔧 Troubleshooting
+
+### Common Issues
+
+**"Command not found" or "uv not found"**
+- Make sure UV is installed: `pip install uv`
+- On Windows, you might need to use `python -m uv` instead of just `uv`
+
+**"Permission denied" when running launch script**
+- On Mac/Linux: Run `chmod +x launch_ntpmcp.sh` to make it executable
+- On Windows: Use `python launch_ntpmcp.sh` instead
+
+**Claude doesn't recognize the time command**
+- Check your configuration file for syntax errors (missing commas, etc.)
+- Make sure the path to ntp-mcp directory is correct
+- Restart Claude Desktop completely (quit and reopen)
+
+**"Module not found" errors**
+- Run `uv sync` again to ensure all dependencies are installed
+- Make sure you're in the ntp-mcp directory when running commands
+
+**Time shows wrong timezone**
+- Run the setup wizard: `python setup_timezone.py`
+- Or manually set the TZ environment variable in the Claude config
 
 ## 📊 Performance
 
