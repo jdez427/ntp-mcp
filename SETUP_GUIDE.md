@@ -2,7 +2,7 @@
 
 ## Quick Start (Automatic Setup)
 
-Run the setup script to automatically configure your timezone:
+Run the setup script to automatically configure your timezone and install the MCP:
 
 ```bash
 # Using Python (recommended - cross-platform)
@@ -16,9 +16,18 @@ This will:
 1. ✅ Detect your system's current timezone
 2. ✅ Configure the NTP-MCP to use your timezone
 3. ✅ Set a reliable default NTP server (time.cloudflare.com)
-4. ✅ Update your Claude configuration automatically
+4. ✅ Check if NTP-MCP is already installed
+5. ✅ Install or update the MCP safely using `claude mcp add`
+6. ✅ Verify the connection is working
 
 ## What the Setup Script Does
+
+### Smart Installation Management
+The script intelligently handles different installation states:
+- **Not Installed**: Automatically installs NTP-MCP
+- **Already Working**: Asks if you want to update settings
+- **Failed Connection**: Automatically reinstalls with correct settings
+- **No Claude CLI**: Provides manual configuration instructions
 
 ### Automatic Timezone Detection
 The script detects your timezone using multiple methods:
@@ -27,15 +36,17 @@ The script detects your timezone using multiple methods:
 - `TZ` environment variable
 - `/etc/localtime` symlink
 
-### Configuration Updates
-The script updates:
-1. **Claude Configuration** (`~/.config/claude/claude_desktop_config.json`)
-   - Adds NTP-MCP with your timezone
-   - Sets the NTP server
+### Safe Configuration Updates
+The script safely updates:
+1. **Claude MCP Registration** (using `claude mcp add`)
+   - Checks for existing installation first
+   - Only updates if you confirm (when already installed)
+   - Automatically fixes failed installations
    
-2. **Launch Script Defaults** (`~/ntp-mcp/launch_ntpmcp.sh`)
+2. **Launch Script Defaults** (`launch_ntpmcp.sh`)
    - Updates default timezone
    - Updates default NTP server
+   - Fixes Windows line endings automatically
 
 ## Manual Configuration Options
 
@@ -59,15 +70,28 @@ python3 setup_timezone.py time.nist.gov
 - `time.windows.com`
 - `time.apple.com`
 
-### Option 2: Edit Claude Configuration Directly
+### Option 2: Manual Installation with Claude CLI
+
+If the setup script doesn't work for you, manually install:
+
+```bash
+# Add the MCP globally
+claude mcp add --scope user ntp bash /path/to/ntp-mcp/launch_ntpmcp.sh
+
+# Verify it's connected
+claude mcp list
+```
+
+### Option 3: Edit Claude Configuration Directly
 
 Add this to your Claude config file:
 
 ```json
 {
   "mcpServers": {
-    "ntp-server": {
-      "command": "~/ntp-mcp/launch_ntpmcp.sh",
+    "ntp": {
+      "command": "bash",
+      "args": ["/path/to/ntp-mcp/launch_ntpmcp.sh"],
       "env": {
         "TZ": "America/New_York",
         "NTP_SERVER": "time.cloudflare.com"
@@ -77,7 +101,7 @@ Add this to your Claude config file:
 }
 ```
 
-### Option 3: Set Environment Variables
+### Option 4: Set Environment Variables
 
 Before starting Claude:
 
@@ -124,6 +148,20 @@ Source:NTP
 ```
 
 ## Troubleshooting
+
+### "Cannot execute: required file not found" Error
+If you get this error when running the scripts, they may have Windows line endings:
+
+```bash
+# Fix line endings for both scripts
+sed -i 's/\r$//' setup_timezone.sh launch_ntpmcp.sh
+sed -i 's/\r$//' setup_timezone.py
+
+# Or if you don't have sed, the Python script will auto-fix launch_ntpmcp.sh
+python3 setup_timezone.py
+```
+
+The setup scripts now automatically fix line endings in launch_ntpmcp.sh.
 
 ### Script Can't Find Claude Config
 If the setup script can't find your Claude configuration:

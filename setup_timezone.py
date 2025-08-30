@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-NTP-MCP Timezone Auto-Configuration Script
-Automatically detects system timezone and configures MCP settings
+NTP-MCP Timezone Auto-Configuration Script v2
+Safely configures NTP-MCP with automatic detection and Claude integration
 """
 
 import json
@@ -10,14 +10,16 @@ import sys
 import subprocess
 import platform
 import shutil
+import time
 from pathlib import Path
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 
 # ANSI color codes
 GREEN = '\033[0;32m'
 YELLOW = '\033[1;33m'
 RED = '\033[0;31m'
+BLUE = '\033[0;34m'
 NC = '\033[0m'  # No Color
 
 # Default NTP servers (approved list)
@@ -90,103 +92,110 @@ def detect_system_timezone() -> str:
     print_color("⚠ Could not detect system timezone, defaulting to UTC", YELLOW)
     return "UTC"
 
-def find_claude_config() -> Optional[Path]:
-    """Find Claude configuration file"""
-    
-    # Common config locations
-    config_paths = [
-        Path.home() / ".config" / "claude" / "claude_desktop_config.json",
-        Path.home() / ".claude" / "config.json",
-        Path.home() / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json",  # macOS
-    ]
-    
-    # Add Windows path if in WSL or Windows
-    if platform.system() == "Windows" or "microsoft" in platform.uname().release.lower():
-        appdata = os.environ.get("APPDATA")
-        if appdata:
-            config_paths.append(Path(appdata) / "Claude" / "claude_desktop_config.json")
-    
-    # Check CLAUDE_CONFIG_PATH environment variable
-    if os.environ.get("CLAUDE_CONFIG_PATH"):
-        config_paths.insert(0, Path(os.environ["CLAUDE_CONFIG_PATH"]))
-    
-    # Find first existing config
-    for path in config_paths:
-        if path.exists():
-            return path
-    
-    return None
+def check_claude_cli() -> bool:
+    """Check if Claude CLI is available"""
+    try:
+        result = subprocess.run(
+            ["which", "claude"],
+            capture_output=True,
+            text=True
+        )
+        return result.returncode == 0
+    except:
+        return False
 
-def update_claude_config(config_path: Path, timezone: str, ntp_server: str) -> bool:
-    """Update Claude configuration with NTP-MCP settings"""
+def get_ntp_mcp_status() -> str:
+    """Get current NTP MCP installation status"""
+    if not check_claude_cli():
+        return "no_cli"
     
-    # Backup existing config
-    if config_path.exists():
-        backup_path = config_path.with_suffix(f".backup.{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
-        shutil.copy2(config_path, backup_path)
-        print_color(f"✓ Backed up config to {backup_path.name}", GREEN)
-    
-    # Load or create config
-    config: Dict[str, Any] = {}
-    if config_path.exists():
-        try:
-            with open(config_path, 'r') as f:
-                config = json.load(f)
-        except json.JSONDecodeError:
-            print_color("⚠ Existing config is invalid JSON, creating new", YELLOW)
-    
-    # Ensure mcpServers section exists
-    if 'mcpServers' not in config:
-        config['mcpServers'] = {}
-    
-    # Update ntp-server configuration
-    config['mcpServers']['ntp-server'] = {
-        'command': '/home/jeff/mcp-ntp/launch_ntpmcp.sh',
-        'env': {
-            'TZ': timezone,
-            'NTP_SERVER': ntp_server
-        }
-    }
-    
-    # Write updated config
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(config_path, 'w') as f:
-        json.dump(config, f, indent=2)
-    
-    return True
+    try:
+        result = subprocess.run(
+            ["claude", "mcp", "list"],
+            capture_output=True,
+            text=True
+        )
+        
+        if result.returncode != 0:
+            return "cli_error"
+        
+        # Look for ntp in the output
+        for line in result.stdout.splitlines():
+            if line.startswith("ntp:"):
+                if "✓ Connected" in line:
+                    return "connected"
+                elif "✗ Failed" in line:
+                    return "failed"
+                else:
+                    return "unknown"
+        
+        return "not_installed"
+    except Exception as e:
+        print_color(f"Error checking MCP status: {e}", YELLOW)
+        return "error"
 
-def create_local_config(timezone: str, ntp_server: str) -> Path:
-    """Create a local configuration file for manual integration"""
-    
-    local_config_dir = Path.home() / ".config" / "ntp-mcp"
-    local_config_dir.mkdir(parents=True, exist_ok=True)
-    local_config_path = local_config_dir / "config.json"
-    
-    config = {
-        "mcpServers": {
-            "ntp-server": {
-                "command": "/home/jeff/mcp-ntp/launch_ntpmcp.sh",
-                "env": {
-                    "TZ": timezone,
-                    "NTP_SERVER": ntp_server
-                }
-            }
-        }
-    }
-    
-    with open(local_config_path, 'w') as f:
-        json.dump(config, f, indent=2)
-    
-    return local_config_path
+def remove_ntp_mcp() -> bool:
+    """Remove existing NTP MCP installation"""
+    try:
+        subprocess.run(
+            ["claude", "mcp", "remove", "--scope", "user", "ntp"],
+            capture_output=True,
+            text=True
+        )
+        return True
+    except:
+        return False
 
-def update_launch_script(timezone: str, ntp_server: str):
-    """Update the launch script with new defaults"""
+def add_ntp_mcp(launch_script: Path) -> bool:
+    """Add NTP MCP to Claude"""
+    try:
+        result = subprocess.run(
+            ["claude", "mcp", "add", "--scope", "user", "ntp", "bash", str(launch_script)],
+            capture_output=True,
+            text=True
+        )
+        return result.returncode == 0
+    except Exception as e:
+        print_color(f"Error adding MCP: {e}", RED)
+        return False
+
+def verify_ntp_connection() -> bool:
+    """Verify NTP MCP is connected"""
+    time.sleep(2)  # Give it a moment to connect
     
-    launch_script = Path("/home/jeff/mcp-ntp/launch_ntpmcp.sh")
-    if not launch_script.exists():
+    try:
+        result = subprocess.run(
+            ["claude", "mcp", "list"],
+            capture_output=True,
+            text=True
+        )
+        
+        return "ntp" in result.stdout and "✓ Connected" in result.stdout
+    except:
+        return False
+
+def fix_line_endings(file_path: Path):
+    """Fix Windows line endings in shell scripts"""
+    if not file_path.exists():
         return
     
     try:
+        content = file_path.read_bytes()
+        # Replace CRLF with LF
+        content = content.replace(b'\r\n', b'\n')
+        file_path.write_bytes(content)
+    except Exception as e:
+        print_color(f"Warning: Could not fix line endings: {e}", YELLOW)
+
+def update_launch_script(launch_script: Path, timezone: str, ntp_server: str):
+    """Update the launch script with new defaults"""
+    if not launch_script.exists():
+        return False
+    
+    try:
+        # Fix line endings first
+        fix_line_endings(launch_script)
+        
         content = launch_script.read_text()
         
         # Update TZ line
@@ -206,15 +215,46 @@ def update_launch_script(timezone: str, ntp_server: str):
         
         launch_script.write_text(content)
         print_color("✓ Updated launch script defaults", GREEN)
+        return True
     except Exception as e:
         print_color(f"⚠ Could not update launch script: {e}", YELLOW)
+        return False
+
+def show_manual_config(launch_script: Path, timezone: str, ntp_server: str):
+    """Show manual configuration for Claude Desktop"""
+    config = {
+        "mcpServers": {
+            "ntp": {
+                "command": "bash",
+                "args": [str(launch_script)],
+                "env": {
+                    "TZ": timezone,
+                    "NTP_SERVER": ntp_server
+                }
+            }
+        }
+    }
+    
+    print()
+    print("Add this to your Claude Desktop configuration:")
+    print(json.dumps(config, indent=2))
 
 def main():
     """Main setup function"""
     
-    print_color("🌍 NTP-MCP Timezone Configuration", GREEN)
+    print_color("🌍 NTP-MCP Timezone Configuration v2", GREEN)
     print("=" * 40)
     print()
+    
+    # Get script directory
+    script_dir = Path(__file__).parent.resolve()
+    launch_script = script_dir / "launch_ntpmcp.sh"
+    
+    # Check if launch script exists
+    if not launch_script.exists():
+        print_color(f"❌ Error: launch_ntpmcp.sh not found in {script_dir}", RED)
+        print("Please run this script from the ntp-mcp directory")
+        return 1
     
     # Detect system timezone
     system_tz = detect_system_timezone()
@@ -223,44 +263,99 @@ def main():
     # Get NTP server from command line or use default
     ntp_server = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_NTP_SERVER
     
-    # Validate NTP server
+    # Validate NTP server (optional warning)
     if ntp_server not in APPROVED_SERVERS:
-        print_color(f"⚠ Warning: '{ntp_server}' is not in the approved server list", YELLOW)
-        print("Approved servers:", ", ".join(APPROVED_SERVERS))
-        response = input("Continue anyway? (y/N): ")
-        if response.lower() != 'y':
+        print_color(f"⚠ Note: '{ntp_server}' is not in the pre-approved list", YELLOW)
+        print("Pre-approved servers:", ", ".join(APPROVED_SERVERS))
+        response = input("Continue? (Y/n): ")
+        if response.lower() == 'n':
             print("Setup cancelled")
-            return
+            return 0
     
     print_color(f"✓ Using NTP server: {ntp_server}", GREEN)
     print()
     
-    # Find and update Claude config
-    print("Looking for Claude configuration...")
-    config_path = find_claude_config()
-    
-    if config_path:
-        print_color(f"✓ Found config at: {config_path}", GREEN)
-        if update_claude_config(config_path, system_tz, ntp_server):
-            print_color("✓ Successfully updated Claude configuration", GREEN)
-    else:
-        print_color("⚠ Claude config not found, creating local config...", YELLOW)
-        local_config = create_local_config(system_tz, ntp_server)
-        print_color(f"✓ Created local config at: {local_config}", GREEN)
-        print()
-        print_color("📝 Next Steps:", YELLOW)
-        print("1. Add the following to your Claude configuration:")
-        print()
-        with open(local_config) as f:
-            print(f.read())
-        print()
-        print("2. Or set environment variables before starting Claude:")
-        print(f"   export TZ='{system_tz}'")
-        print(f"   export NTP_SERVER='{ntp_server}'")
-    
-    # Update launch script
+    # Update launch script with detected values
+    print("Updating launch script defaults...")
+    if update_launch_script(launch_script, system_tz, ntp_server):
+        print_color("✓ Launch script updated", GREEN)
     print()
-    update_launch_script(system_tz, ntp_server)
+    
+    # Check Claude CLI availability
+    if not check_claude_cli():
+        print_color("⚠ Claude CLI not found.", YELLOW)
+        print()
+        print("To install the NTP-MCP manually, run:")
+        print_color(f"claude mcp add --scope user ntp bash {launch_script}", BLUE)
+        print()
+        print("Or add to your Claude Desktop config:")
+        show_manual_config(launch_script, system_tz, ntp_server)
+        return 0
+    
+    # Check current installation status
+    print("Checking NTP-MCP installation status...")
+    status = get_ntp_mcp_status()
+    
+    if status == "connected":
+        print_color("✓ NTP-MCP is already installed and connected!", GREEN)
+        print()
+        response = input("Would you like to update it with new settings? (y/N): ")
+        if response.lower() == 'y':
+            print("Updating NTP-MCP configuration...")
+            remove_ntp_mcp()
+            time.sleep(1)
+            if add_ntp_mcp(launch_script):
+                print_color("✓ NTP-MCP updated successfully!", GREEN)
+            else:
+                print_color("❌ Failed to update NTP-MCP", RED)
+                return 1
+        else:
+            print("Keeping existing configuration.")
+    
+    elif status == "failed":
+        print_color("⚠ NTP-MCP is installed but failed to connect.", YELLOW)
+        print("Reinstalling with corrected configuration...")
+        remove_ntp_mcp()
+        time.sleep(1)
+        if add_ntp_mcp(launch_script):
+            print_color("✓ NTP-MCP reinstalled successfully!", GREEN)
+        else:
+            print_color("❌ Failed to reinstall NTP-MCP", RED)
+            return 1
+    
+    elif status == "not_installed":
+        print_color("→ NTP-MCP not found. Installing...", BLUE)
+        if add_ntp_mcp(launch_script):
+            print_color("✓ NTP-MCP installed successfully!", GREEN)
+        else:
+            print_color("❌ Failed to install NTP-MCP", RED)
+            return 1
+    
+    elif status == "no_cli":
+        print_color("❌ Claude CLI not available", RED)
+        show_manual_config(launch_script, system_tz, ntp_server)
+        return 1
+    
+    else:
+        print_color("⚠ Unknown status. Attempting installation...", YELLOW)
+        # Try to add, if it fails try remove then add
+        if not add_ntp_mcp(launch_script):
+            print_color("Note: MCP might already be installed. Trying to update...", YELLOW)
+            remove_ntp_mcp()
+            time.sleep(1)
+            if add_ntp_mcp(launch_script):
+                print_color("✓ NTP-MCP configuration complete!", GREEN)
+            else:
+                print_color("❌ Failed to configure NTP-MCP", RED)
+                return 1
+    
+    # Verify installation
+    print()
+    print("Verifying installation...")
+    if verify_ntp_connection():
+        print_color("✅ SUCCESS! NTP-MCP is connected and working!", GREEN)
+    else:
+        print_color("⚠ Please restart Claude to complete the setup.", YELLOW)
     
     # Summary
     print()
@@ -269,15 +364,16 @@ def main():
     print("Summary:")
     print(f"  Timezone: {system_tz}")
     print(f"  NTP Server: {ntp_server}")
+    print(f"  Installation: {script_dir}")
     print()
-    print("The NTP-MCP will now use your system's timezone automatically.")
+    print("The NTP-MCP will use these settings automatically.")
     print()
-    print("To use a different NTP server, run:")
+    print("To change settings, run:")
     print(f"  python3 {sys.argv[0]} <ntp-server>")
     print("Example:")
     print(f"  python3 {sys.argv[0]} time.google.com")
-    print()
-    print_color("Start Claude to use the updated configuration!", GREEN)
+    
+    return 0
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

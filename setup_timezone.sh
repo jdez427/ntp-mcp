@@ -1,6 +1,6 @@
 #!/bin/bash
-# NTP-MCP Timezone Auto-Configuration Script
-# Automatically detects system timezone and configures MCP settings
+# NTP-MCP Timezone Auto-Configuration Script v2
+# Safely configures NTP-MCP with automatic detection and Claude integration
 
 set -euo pipefail
 
@@ -8,11 +8,15 @@ set -euo pipefail
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
+BLUE='\033[0;34m'
 NC='\033[0m'
 
-echo -e "${GREEN}🌍 NTP-MCP Timezone Configuration${NC}"
-echo "=================================="
+echo -e "${GREEN}🌍 NTP-MCP Timezone Configuration v2${NC}"
+echo "======================================"
 echo ""
+
+# Get script directory
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Detect system timezone
 detect_timezone() {
@@ -53,174 +57,178 @@ detect_timezone() {
     echo "UTC"
 }
 
-# Get system timezone
-SYSTEM_TZ=$(detect_timezone)
-echo -e "${GREEN}✓${NC} Detected system timezone: ${YELLOW}$SYSTEM_TZ${NC}"
+# Check if Claude CLI is available
+check_claude_cli() {
+    if command -v claude &> /dev/null; then
+        return 0
+    else
+        return 1
+    fi
+}
 
-# Default NTP server (can be overridden)
-DEFAULT_NTP_SERVER="time.cloudflare.com"
-
-# Parse command line arguments
-NTP_SERVER="${1:-$DEFAULT_NTP_SERVER}"
-
-if [ "$#" -gt 0 ]; then
-    echo -e "${GREEN}✓${NC} Using specified NTP server: ${YELLOW}$NTP_SERVER${NC}"
-else
-    echo -e "${GREEN}✓${NC} Using default NTP server: ${YELLOW}$NTP_SERVER${NC}"
-fi
-
-# Find Claude config file location
-find_claude_config() {
-    # Common locations for Claude config
-    local config_paths=(
-        "$HOME/.config/claude/claude_desktop_config.json"
-        "$HOME/.claude/config.json"
-        "$HOME/Library/Application Support/Claude/claude_desktop_config.json"  # macOS
-        "$APPDATA/Claude/claude_desktop_config.json"  # Windows (if in WSL)
-    )
+# Check if NTP MCP is already installed
+check_ntp_installed() {
+    if ! check_claude_cli; then
+        return 2  # Claude CLI not available
+    fi
     
-    for path in "${config_paths[@]}"; do
-        if [ -f "$path" ]; then
-            echo "$path"
-            return
+    # Check if ntp is in the MCP list
+    if claude mcp list 2>/dev/null | grep -q "^ntp:"; then
+        return 0  # Found
+    else
+        return 1  # Not found
+    fi
+}
+
+# Get current NTP MCP status
+get_ntp_status() {
+    local status_line=$(claude mcp list 2>/dev/null | grep "^ntp:" || true)
+    if [ -n "$status_line" ]; then
+        if echo "$status_line" | grep -q "✓ Connected"; then
+            echo "connected"
+        elif echo "$status_line" | grep -q "✗ Failed"; then
+            echo "failed"
+        else
+            echo "unknown"
         fi
-    done
+    else
+        echo "not_installed"
+    fi
+}
+
+# Main configuration
+main() {
+    # Get system timezone
+    SYSTEM_TZ=$(detect_timezone)
+    echo -e "${GREEN}✓${NC} Detected system timezone: ${YELLOW}$SYSTEM_TZ${NC}"
     
-    # If not found, check if user has CLAUDE_CONFIG_PATH set
-    if [ -n "${CLAUDE_CONFIG_PATH:-}" ] && [ -f "$CLAUDE_CONFIG_PATH" ]; then
-        echo "$CLAUDE_CONFIG_PATH"
+    # Default NTP server (can be overridden)
+    DEFAULT_NTP_SERVER="time.cloudflare.com"
+    NTP_SERVER="${1:-$DEFAULT_NTP_SERVER}"
+    
+    if [ "$#" -gt 0 ]; then
+        echo -e "${GREEN}✓${NC} Using specified NTP server: ${YELLOW}$NTP_SERVER${NC}"
+    else
+        echo -e "${GREEN}✓${NC} Using default NTP server: ${YELLOW}$NTP_SERVER${NC}"
+    fi
+    
+    echo ""
+    
+    # Update launch script with detected values
+    LAUNCH_SCRIPT="$SCRIPT_DIR/launch_ntpmcp.sh"
+    if [ -f "$LAUNCH_SCRIPT" ]; then
+        echo "Updating launch script defaults..."
+        # Fix line endings first
+        sed -i 's/\r$//' "$LAUNCH_SCRIPT" 2>/dev/null || true
+        # Update the export lines
+        sed -i.bak "s|export TZ=.*|export TZ=\"\${TZ:-$SYSTEM_TZ}\"|" "$LAUNCH_SCRIPT"
+        sed -i "s|export NTP_SERVER=.*|export NTP_SERVER=\"\${NTP_SERVER:-$NTP_SERVER}\"|" "$LAUNCH_SCRIPT"
+        echo -e "${GREEN}✓${NC} Updated launch script defaults"
+        echo ""
+    fi
+    
+    # Check Claude CLI availability
+    if ! check_claude_cli; then
+        echo -e "${YELLOW}⚠${NC} Claude CLI not found."
+        echo ""
+        echo "To install the NTP-MCP manually, run:"
+        echo -e "${BLUE}claude mcp add --scope user ntp bash $LAUNCH_SCRIPT${NC}"
+        echo ""
+        echo "Or add to your Claude Desktop config:"
+        show_manual_config
         return
     fi
     
-    return 1
-}
-
-# Update or create MCP config
-update_mcp_config() {
-    local config_file="$1"
-    local tz="$2"
-    local ntp="$3"
+    # Check current installation status
+    echo "Checking NTP-MCP installation status..."
+    NTP_STATUS=$(get_ntp_status)
     
-    # Backup existing config
-    if [ -f "$config_file" ]; then
-        cp "$config_file" "${config_file}.backup.$(date +%Y%m%d_%H%M%S)"
-        echo -e "${GREEN}✓${NC} Backed up existing config"
+    case "$NTP_STATUS" in
+        "connected")
+            echo -e "${GREEN}✓${NC} NTP-MCP is already installed and connected!"
+            echo ""
+            echo -e "${YELLOW}Would you like to update it with new settings? (y/N):${NC}"
+            read -r response
+            if [[ "$response" =~ ^[Yy]$ ]]; then
+                echo "Updating NTP-MCP configuration..."
+                claude mcp remove --scope user ntp 2>/dev/null || true
+                sleep 1
+                claude mcp add --scope user ntp bash "$LAUNCH_SCRIPT"
+                echo -e "${GREEN}✓${NC} NTP-MCP updated successfully!"
+            else
+                echo "Keeping existing configuration."
+            fi
+            ;;
+            
+        "failed")
+            echo -e "${YELLOW}⚠${NC} NTP-MCP is installed but failed to connect."
+            echo "Reinstalling with corrected configuration..."
+            claude mcp remove --scope user ntp 2>/dev/null || true
+            sleep 1
+            claude mcp add --scope user ntp bash "$LAUNCH_SCRIPT"
+            echo -e "${GREEN}✓${NC} NTP-MCP reinstalled successfully!"
+            ;;
+            
+        "not_installed")
+            echo -e "${BLUE}→${NC} NTP-MCP not found. Installing..."
+            claude mcp add --scope user ntp bash "$LAUNCH_SCRIPT"
+            echo -e "${GREEN}✓${NC} NTP-MCP installed successfully!"
+            ;;
+            
+        *)
+            echo -e "${YELLOW}⚠${NC} Unknown status. Attempting installation..."
+            claude mcp add --scope user ntp bash "$LAUNCH_SCRIPT" 2>/dev/null || {
+                echo -e "${YELLOW}Note: MCP might already be installed. Trying to update...${NC}"
+                claude mcp remove --scope user ntp 2>/dev/null || true
+                sleep 1
+                claude mcp add --scope user ntp bash "$LAUNCH_SCRIPT"
+            }
+            echo -e "${GREEN}✓${NC} NTP-MCP configuration complete!"
+            ;;
+    esac
+    
+    echo ""
+    echo "Verifying installation..."
+    sleep 2
+    if claude mcp list 2>/dev/null | grep -q "ntp.*✓ Connected"; then
+        echo -e "${GREEN}✅ SUCCESS! NTP-MCP is connected and working!${NC}"
+    else
+        echo -e "${YELLOW}⚠${NC} Please restart Claude to complete the setup."
     fi
     
-    # Check if config exists and has mcpServers section
-    if [ -f "$config_file" ]; then
-        # Use Python to safely update JSON
-        python3 << EOF
-import json
-import sys
+    echo ""
+    echo -e "${GREEN}🎉 Configuration Complete!${NC}"
+    echo ""
+    echo "Summary:"
+    echo "  Timezone: $SYSTEM_TZ"
+    echo "  NTP Server: $NTP_SERVER"
+    echo "  Installation: $SCRIPT_DIR"
+    echo ""
+    echo "The NTP-MCP will use these settings automatically."
+    echo ""
+    echo "To change settings, run:"
+    echo "  $0 <ntp-server>"
+    echo "Example:"
+    echo "  $0 time.google.com"
+}
 
-config_file = "$config_file"
-tz = "$tz"
-ntp = "$ntp"
-
-try:
-    with open(config_file, 'r') as f:
-        config = json.load(f)
-except:
-    config = {}
-
-# Ensure mcpServers exists
-if 'mcpServers' not in config:
-    config['mcpServers'] = {}
-
-# Update or add ntp-server configuration
-if 'ntp-server' not in config['mcpServers']:
-    config['mcpServers']['ntp-server'] = {
-        'command': '/home/jeff/mcp-ntp/launch_ntpmcp.sh'
-    }
-
-# Add or update env section
-if 'env' not in config['mcpServers']['ntp-server']:
-    config['mcpServers']['ntp-server']['env'] = {}
-
-config['mcpServers']['ntp-server']['env']['TZ'] = tz
-config['mcpServers']['ntp-server']['env']['NTP_SERVER'] = ntp
-
-# Write back
-with open(config_file, 'w') as f:
-    json.dump(config, f, indent=2)
-
-print(f"Updated: TZ={tz}, NTP_SERVER={ntp}")
-EOF
-        if [ $? -eq 0 ]; then
-            echo -e "${GREEN}✓${NC} Successfully updated MCP configuration"
-            return 0
-        else
-            echo -e "${RED}✗${NC} Failed to update configuration"
-            return 1
-        fi
-    else
-        # Create new config
-        cat > "$config_file" << EOF
+# Show manual configuration
+show_manual_config() {
+    cat << EOF
 {
   "mcpServers": {
-    "ntp-server": {
-      "command": "/home/jeff/mcp-ntp/launch_ntpmcp.sh",
+    "ntp": {
+      "command": "bash",
+      "args": ["$LAUNCH_SCRIPT"],
       "env": {
-        "TZ": "$tz",
-        "NTP_SERVER": "$ntp"
+        "TZ": "$SYSTEM_TZ",
+        "NTP_SERVER": "$NTP_SERVER"
       }
     }
   }
 }
 EOF
-        echo -e "${GREEN}✓${NC} Created new configuration file"
-    fi
 }
 
-# Try to find and update Claude config
-echo ""
-echo "Looking for Claude configuration..."
-if CONFIG_PATH=$(find_claude_config); then
-    echo -e "${GREEN}✓${NC} Found config at: $CONFIG_PATH"
-    update_mcp_config "$CONFIG_PATH" "$SYSTEM_TZ" "$NTP_SERVER"
-else
-    echo -e "${YELLOW}⚠${NC} Claude config not found. Creating local MCP config..."
-    
-    # Create a local config that can be referenced
-    LOCAL_CONFIG="$HOME/.config/ntp-mcp/config.json"
-    mkdir -p "$(dirname "$LOCAL_CONFIG")"
-    update_mcp_config "$LOCAL_CONFIG" "$SYSTEM_TZ" "$NTP_SERVER"
-    
-    echo ""
-    echo -e "${YELLOW}📝 Next Steps:${NC}"
-    echo "1. Add this to your Claude configuration:"
-    echo ""
-    cat "$LOCAL_CONFIG"
-    echo ""
-    echo "2. Or set environment variables before starting Claude:"
-    echo "   export TZ='$SYSTEM_TZ'"
-    echo "   export NTP_SERVER='$NTP_SERVER'"
-fi
-
-# Also update the launch script as a fallback
-LAUNCH_SCRIPT="/home/jeff/mcp-ntp/launch_ntpmcp.sh"
-if [ -f "$LAUNCH_SCRIPT" ]; then
-    echo ""
-    echo "Updating launch script defaults..."
-    # Update the export lines in launch script
-    sed -i.bak "s|export TZ=.*|export TZ=\"\${TZ:-$SYSTEM_TZ}\"|" "$LAUNCH_SCRIPT"
-    sed -i "s|export NTP_SERVER=.*|export NTP_SERVER=\"\${NTP_SERVER:-$NTP_SERVER}\"|" "$LAUNCH_SCRIPT"
-    echo -e "${GREEN}✓${NC} Updated launch script defaults"
-fi
-
-echo ""
-echo -e "${GREEN}🎉 Configuration Complete!${NC}"
-echo ""
-echo "Summary:"
-echo "  Timezone: $SYSTEM_TZ"
-echo "  NTP Server: $NTP_SERVER"
-echo ""
-echo "The NTP-MCP will now use your system's timezone automatically."
-echo ""
-echo "To use a different NTP server, run:"
-echo "  $0 <ntp-server>"
-echo "Example:"
-echo "  $0 time.google.com"
-echo ""
-echo -e "${GREEN}Start Claude to use the updated configuration!${NC}"
+# Run main function
+main "$@"
