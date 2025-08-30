@@ -1,0 +1,26 @@
+[project]
+name = "ntp-mcp"
+version = "1.0.0"
+description = "MCP server for secure NTP synchronization with geographic filtering"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{name = "Jeff Dezso", email = ""}]
+dependencies = [
+    "mcp>=1.12.0",
+    "ntplib==0.4.0",
+    "pytz==2025.2",
+    "tenacity==9.1.2",
+]
+
+[project.scripts]
+ntp-mcp = "ntp_mcp.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+python-preference = "managed"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ntp_mcp"]

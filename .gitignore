@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Environment
+.env
+.env.local
+
+# Logs
+*.log
+
+# UV
+.uv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Project specific
+deploy_to_prod.sh
+*_REVIEW_*.md
+*_AUDIT*.md
+server_v*.py
+*backup*
+.dockerignore
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
