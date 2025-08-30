@@ -105,11 +105,12 @@ cd ntp-mcp
 #    This creates a virtual environment and installs everything needed
 uv sync
 
-# 4. Run the server
-#    On Windows: python launch_ntpmcp.sh
-#    On Mac/Linux: ./launch_ntpmcp.sh
-./launch_ntpmcp.sh
+# 4. Add the MCP to Claude (global installation)
+#    This makes it available to all Claude instances
+claude mcp add --scope user ntp bash /path/to/ntp-mcp/launch_ntpmcp.sh
 ```
+
+That's it! Claude will automatically start the NTP server when needed.
 
 #### Option 2: Download ZIP
 
@@ -120,7 +121,7 @@ uv sync
 5. Run:
    ```bash
    uv sync
-   ./launch_ntpmcp.sh
+   claude mcp add --scope user ntp bash /path/to/ntp-mcp/launch_ntpmcp.sh
    ```
 
 ### What's Happening During Installation?
@@ -130,10 +131,11 @@ uv sync
   - Downloads and installs all required packages (mcp, ntplib, pytz, etc.)
   - Locks the versions for consistency
   
-- **`./launch_ntpmcp.sh`** is a script that:
-  - Sets up the environment variables
-  - Starts the NTP-MCP server
-  - Shows you the configuration
+- **`claude mcp add`** command:
+  - Registers the NTP-MCP with Claude globally (--scope user)
+  - Points to the launch script that Claude will use
+  - Claude automatically starts/stops the server as needed
+  - No manual server management required!
 
 ### Local Installation
 
@@ -144,8 +146,8 @@ cp -r src pyproject.toml launch_ntpmcp.sh ~/ntp-mcp/
 cd ~/ntp-mcp
 uv sync
 
-# Run the server
-./launch_ntpmcp.sh
+# Add to Claude globally
+claude mcp add --scope user ntp bash ~/ntp-mcp/launch_ntpmcp.sh
 ```
 
 ### Environment Variables
@@ -155,7 +157,21 @@ uv sync
 
 ## 📦 Installation for Claude Desktop
 
-### Finding Your Configuration File
+### Method 1: Command Line (Recommended for Linux/WSL)
+
+```bash
+# Global installation for all Claude instances
+claude mcp add --scope user ntp bash /path/to/ntp-mcp/launch_ntpmcp.sh
+
+# Verify it's connected
+claude mcp list
+```
+
+### Method 2: Manual Configuration
+
+If you prefer manual configuration or are on Windows/Mac without the CLI:
+
+#### Finding Your Configuration File
 
 Claude Desktop stores its configuration in different places depending on your operating system:
 
@@ -163,11 +179,12 @@ Claude Desktop stores its configuration in different places depending on your op
 - **Mac**: `~/Library/Application Support/Claude/claude_desktop_config.json`
 - **Linux**: `~/.config/claude/claude_desktop_config.json`
 
-### Adding NTP-MCP to Claude
-
+#### Manual Setup
 1. **Open the configuration file** in a text editor (Notepad, TextEdit, etc.)
 2. **Find or create the `mcpServers` section**
-3. **Add the NTP-MCP configuration**:
+3. **Add the NTP-MCP configuration** (see Configuration Format below)
+
+### Configuration Format
 
 ```json
 {
@@ -261,6 +278,20 @@ sudo systemctl status ntp-mcp
 }
 ```
 
+## 🧪 Testing the Server (Optional)
+
+If you want to test the server manually before adding it to Claude:
+
+```bash
+# Run the server manually (Ctrl+C to stop)
+./launch_ntpmcp.sh
+
+# In another terminal, you can test it with:
+echo '{"jsonrpc": "2.0", "method": "initialize", "params": {"protocolVersion": "2024-11-05", "clientInfo": {"name": "test", "version": "1.0"}, "capabilities": {}}, "id": 1}' | uv run python -m ntp_mcp
+```
+
+**Note:** Manual testing is optional. Once added to Claude with `claude mcp add`, Claude handles all server management automatically.
+
 ## 🔧 Troubleshooting
 
 ### Common Issues
@@ -269,8 +300,10 @@ sudo systemctl status ntp-mcp
 - Make sure UV is installed: `pip install uv`
 - On Windows, you might need to use `python -m uv` instead of just `uv`
 
-**"Permission denied" when running launch script**
+**"Permission denied" or "cannot execute: required file not found"**
 - On Mac/Linux: Run `chmod +x launch_ntpmcp.sh` to make it executable
+- If you get "required file not found", the script may have Windows line endings
+  - Fix with: `sed -i 's/\r$//' launch_ntpmcp.sh`
 - On Windows: Use `python launch_ntpmcp.sh` instead
 
 **Claude doesn't recognize the time command**
